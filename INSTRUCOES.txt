@@ -1,0 +1,71 @@
+════════════════════════════════════════════════════════════
+  SITTAX — GERADOR DE ARTIGOS  |  INSTRUÇÕES DE USO
+════════════════════════════════════════════════════════════
+
+PRÉ-REQUISITOS
+──────────────
+1. Node.js instalado (versão 18 ou superior)
+   → Baixe em: https://nodejs.org/
+
+2. Chave de API da Anthropic
+   → Acesse: https://console.anthropic.com/
+   → Crie uma conta e gere uma API key
+
+
+INSTALAÇÃO (primeira vez)
+─────────────────────────
+1. Abra o terminal na pasta do projeto
+
+2. Instale as dependências:
+   npm install
+
+3. Configure sua API key:
+   - Abra o arquivo config.js
+   - Substitua  SUA_CHAVE_AQUI  pela sua chave da Anthropic
+   - Salve o arquivo
+
+   ATENÇÃO: Nunca compartilhe o config.js com sua chave preenchida.
+
+
+COMO RODAR
+──────────
+No terminal, dentro da pasta do projeto:
+
+   npm run dev
+
+Aguarde as mensagens:
+   ✅ Sittax Gerador rodando em http://localhost:3001
+   ➜  Local: http://localhost:5173
+
+Abra o navegador em: http://localhost:5173
+
+
+COMO USAR A FERRAMENTA
+──────────────────────
+1. Digite o tema do artigo no campo de texto
+   Exemplo: "Simples Nacional após a Reforma Tributária — o que muda para MEIs"
+
+2. Clique em "Gerar artigo →"
+
+3. Aguarde (~5 minutos). O progresso aparece no painel de log.
+
+4. Ao concluir, clique em "⬇ Baixar arquivo para PDF"
+
+5. Abra o arquivo baixado no navegador
+
+6. Pressione Ctrl+P → selecione "Salvar como PDF" → Salvar
+
+
+DICAS
+─────
+- Seja específico no tema: mencione o público-alvo ou a dúvida do cliente
+- O artigo só é entregue com score ≥ 90/100
+- Todos os links externos e internos são verificados automaticamente
+- Os metadados para o WordPress aparecem na parte superior do resultado
+
+
+SUPORTE
+───────
+Em caso de dúvidas, entre em contato com a equipe de tecnologia da Sittax.
+
+════════════════════════════════════════════════════════════
