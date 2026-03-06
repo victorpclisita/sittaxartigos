@@ -528,13 +528,15 @@ const FASES = [
 ];
 
 export default function App() {
-  const [tema, setTema] = useState("");
-  const [fase, setFase] = useState("idle");
-  const [log, setLog] = useState([]);
-  const [pesquisa, setPesquisa] = useState(null);
-  const [artigo, setArtigo] = useState("");
-  const [audit, setAudit] = useState(null);
-  const [erro, setErro] = useState("");
+  const [tema,         setTema]         = useState("");
+  const [keyAnthropic, setKeyAnthropic] = useState("");
+  const [keyOpenAI,    setKeyOpenAI]    = useState("");
+  const [fase,         setFase]         = useState("idle");
+  const [log,          setLog]          = useState([]);
+  const [pesquisa,     setPesquisa]     = useState(null);
+  const [artigo,       setArtigo]       = useState("");
+  const [audit,        setAudit]        = useState(null);
+  const [erro,         setErro]         = useState("");
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -544,15 +546,59 @@ export default function App() {
   const log_ = (msg, tipo = "info") =>
     setLog(prev => [...prev, { msg, tipo, ts: new Date().toLocaleTimeString("pt-BR") }]);
 
+  // Chama o backend Vercel → Anthropic (Claude)
+  async function callClaude(prompt, maxTokens) {
+    const res = await fetch("/api/gerar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, maxTokens, apiKey: keyAnthropic }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Erro no servidor (${res.status})`);
+    }
+    return (await res.json()).texto || "";
+  }
+
+  // Chama o backend Vercel → Anthropic com web_search
+  async function callClaudeSearch(prompt, maxTokens) {
+    const res = await fetch("/api/pesquisar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, maxTokens, apiKey: keyAnthropic }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Erro no servidor (${res.status})`);
+    }
+    return (await res.json()).texto || "";
+  }
+
+  // Chama o backend Vercel → OpenAI (GPT-4o)
+  async function callGPT(prompt, maxTokens) {
+    const res = await fetch("/api/auditar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, maxTokens, apiKey: keyOpenAI }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Erro OpenAI (${res.status})`);
+    }
+    return (await res.json()).texto || "";
+  }
+
   async function gerar() {
     if (!tema.trim()) return;
+    if (!keyAnthropic.trim()) { setErro("Insira a chave da API Anthropic (Claude)."); return; }
+    if (!keyOpenAI.trim())    { setErro("Insira a chave da API OpenAI (ChatGPT)."); return; }
     setLog([]); setErro(""); setArtigo("");
     setPesquisa(null); setAudit(null);
 
     try {
       setFase("pesquisa");
       log_("Definindo estratégia de keywords e estrutura...");
-      const rawP = await callGroq(PROMPTS.pesquisa(tema), 1500);
+      const rawP = await callClaude(PROMPTS.pesquisa(tema), 1500);
       const pd = parseJSON(rawP);
       if (!pd) throw new Error(`Resposta inválida da API na pesquisa. Conteúdo: "${rawP.slice(0, 120)}..."`);
       if (!pd.keyword_primaria) throw new Error("JSON retornado sem campo 'keyword_primaria'. Tente novamente.");
@@ -578,28 +624,28 @@ export default function App() {
       log_(`✓ ${pd.secoes.length} seções + ${pd.faq_perguntas.length} FAQs planejados`, "ok");
 
       setFase("corpo");
-      log_("Escrevendo introdução e seções principais...");
+      log_("Escrevendo introdução e seções principais... (Claude)");
       await pausa(8, "", log_);
-      const corpoPart = await callGroq(PROMPTS.corpo(tema, pd), 2500);
+      const corpoPart = await callClaude(PROMPTS.corpo(tema, pd), 2500);
       if (corpoPart.length < 400) throw new Error("Corpo do artigo muito curto. Tente um tema mais específico.");
       log_(`✓ Corpo: ~${contarPalavras(corpoPart)} palavras`, "ok");
 
       setFase("faq");
-      log_("Escrevendo seção de Perguntas Frequentes...");
+      log_("Escrevendo seção de Perguntas Frequentes... (Claude)");
       await pausa(12, "", log_);
-      const faqPart = await callGroq(PROMPTS.faq(tema, pd, corpoPart), 900);
+      const faqPart = await callClaude(PROMPTS.faq(tema, pd, corpoPart), 900);
       if (faqPart.length < 100) throw new Error("FAQ não gerado corretamente.");
       log_(`✓ FAQ: ~${contarPalavras(faqPart)} palavras`, "ok");
 
       setFase("cta");
-      log_("Escrevendo conclusão...");
+      log_("Escrevendo conclusão... (Claude)");
       await pausa(10, "", log_);
-      const conclusaoPart = await callGroq(PROMPTS.conclusao(tema, pd), 400);
+      const conclusaoPart = await callClaude(PROMPTS.conclusao(tema, pd), 400);
       log_(`✓ Conclusão: ~${contarPalavras(conclusaoPart)} palavras`, "ok");
 
-      log_("Escrevendo CTA...");
+      log_("Escrevendo CTA... (Claude)");
       await pausa(8, "", log_);
-      const ctaPart = await callGroq(PROMPTS.cta(tema, pd), 300);
+      const ctaPart = await callClaude(PROMPTS.cta(tema, pd), 300);
       log_(`✓ CTA: ~${contarPalavras(ctaPart)} palavras`, "ok");
 
       const textoCompleto = `${corpoPart}\n\n${faqPart}\n\n${conclusaoPart}\n\n${ctaPart}`;
@@ -610,10 +656,10 @@ export default function App() {
       let auditFinal = null;
 
       setFase("polimento");
-      log_("Polindo transição e voz ativa (critérios Yoast)...");
+      log_("Polindo transição e voz ativa... (Claude)");
       await pausa(20, "", log_);
       try {
-        const polido = await callGroq(PROMPTS.polimento(textoCompleto), 6000);
+        const polido = await callClaude(PROMPTS.polimento(textoCompleto), 6000);
         if (polido?.length > 500) {
           textoFinal = polido; setArtigo(polido);
           log_(`✓ Polimento aplicado — ${contarPalavras(polido)} palavras`, "ok");
@@ -624,11 +670,28 @@ export default function App() {
         log_(`⚠ Polimento falhou (${e.message}). Continuando.`, "warn");
       }
 
+      // ── Fluxo de auditorias intercalado ──────────────────────────────────
+      // Rodada 1: Claude audita → Claude revisa → Claude fontes + links
+      // Rodada 2: ChatGPT audita → ChatGPT revisa
+      // Rodada 3: Claude audita → Claude revisa
+      const AUDITORES = { 1: "Claude", 2: "ChatGPT", 3: "Claude" };
+      const REVISORES = { 1: "Claude", 2: "ChatGPT", 3: "Claude" };
+
       for (let rodada = 1; rodada <= 3; rodada++) {
+        const auditor = AUDITORES[rodada];
+        const revisor = REVISORES[rodada];
+
         setFase(`auditoria${rodada}`);
-        log_(`Auditoria ${rodada}/3 — verificando qualidade, Yoast e linguagem...`);
+        log_(`Auditoria ${rodada}/3 — verificando qualidade, Yoast e linguagem... (${auditor})`);
         await pausa(20, "", log_);
-        const rawA = await callGroq(PROMPTS.auditoria(textoFinal, rodada), 1500);
+
+        let rawA;
+        if (auditor === "ChatGPT") {
+          rawA = await callGPT(PROMPTS.auditoria(textoFinal, rodada), 1500);
+        } else {
+          rawA = await callClaude(PROMPTS.auditoria(textoFinal, rodada), 1500);
+        }
+
         const ad = parseJSON(rawA);
         if (!ad) { log_(`⚠ Auditoria ${rodada} não retornou JSON válido, pulando.`, "warn"); break; }
         auditFinal = ad;
@@ -638,33 +701,41 @@ export default function App() {
 
         log_(
           `✓ Score rodada ${rodada}: ${ad.score_geral}/100` +
-          (ad.yoast ? ` | Transição: ${ad.yoast.percentual_transicao}% (${ad.yoast.status_transicao}) | Voz passiva: ${ad.yoast.percentual_passiva}% (${ad.yoast.status_passiva})` : "") +
+          (ad.yoast ? ` | Transição: ${ad.yoast.percentual_transicao}% (${ad.yoast.status_transicao}) | Passiva: ${ad.yoast.percentual_passiva}% (${ad.yoast.status_passiva})` : "") +
           (scoreSuficiente ? " — aprovado ✓" : " — revisando..."),
           scoreSuficiente ? "ok" : "warn"
         );
 
         const problemas = (ad.problemas || []).filter(p => p?.trim() && p.length > 5);
         if (scoreSuficiente && problemas.length === 0) { log_(`✓ Artigo aprovado na rodada ${rodada} (score ${ad.score_geral}/100)`, "ok"); break; }
-        if (rodada === 3) { log_(`⚠ Score final ${ad.score_geral}/100 após 3 rodadas. Entregando melhor versão disponível.`, "warn"); break; }
+        if (rodada === 3) { log_(`⚠ Score final ${ad.score_geral}/100 após 3 rodadas. Entregando melhor versão.`, "warn"); break; }
 
         setFase(`revisao${rodada}`);
-        log_(`Revisão ${rodada}/3 — corrigindo ${problemas.length} problema(s) para atingir score 90+...`, "warn");
+        log_(`Revisão ${rodada}/3 — corrigindo ${problemas.length} problema(s)... (${revisor})`, "warn");
         problemas.forEach(p => log_(`  → ${p}`, "warn"));
         await pausa(20, "", log_);
-        const revisado = await callGroq(PROMPTS.revisar(textoFinal, problemas), 6000);
+
+        let revisado;
+        if (revisor === "ChatGPT") {
+          revisado = await callGPT(PROMPTS.revisar(textoFinal, problemas), 6000);
+        } else {
+          revisado = await callClaude(PROMPTS.revisar(textoFinal, problemas), 6000);
+        }
+
         if (revisado?.length > 500) {
           textoFinal = revisado; setArtigo(revisado);
           log_(`✓ Revisão ${rodada} aplicada — ${contarPalavras(revisado)} palavras`, "ok");
         } else {
-          log_(`⚠ Revisão ${rodada} retornou texto muito curto, mantendo versão anterior.`, "warn");
+          log_(`⚠ Revisão ${rodada} retornou texto curto, mantendo versão anterior.`, "warn");
         }
 
+        // Fontes e links internos apenas após rodada 1 (Claude)
         if (rodada === 1) {
           setFase("fontes");
-          log_("Verificando legislação e inserindo links para fontes oficiais...");
+          log_("Verificando legislação e inserindo links para fontes oficiais... (Claude)");
           await pausa(20, "", log_);
           try {
-            const comLinks = await callGroqComSearch(PROMPTS.linkagem(textoFinal), 4500);
+            const comLinks = await callClaudeSearch(PROMPTS.linkagem(textoFinal), 4500);
             if (comLinks?.length > 500) {
               textoFinal = comLinks; setArtigo(comLinks);
               const qtdLinks = (comLinks.match(/\[.+?\]\(https?:\/\/.+?\)/g) || []).length;
@@ -673,10 +744,10 @@ export default function App() {
           } catch (e) { log_(`⚠ Etapa de fontes falhou (${e.message}). Continuando.`, "warn"); }
 
           setFase("links_internos");
-          log_("Buscando artigos do blog Sittax para inserir links internos...");
+          log_("Buscando artigos do blog Sittax para inserir links internos... (Claude)");
           await pausa(20, "", log_);
           try {
-            const comLinksInt = await callGroqComSearch(PROMPTS.linksInternos(textoFinal, tema), 4500);
+            const comLinksInt = await callClaudeSearch(PROMPTS.linksInternos(textoFinal, tema), 4500);
             if (comLinksInt?.length > 500) {
               textoFinal = comLinksInt; setArtigo(comLinksInt);
               const qtdInt = (comLinksInt.match(/\[.+?\]\(https?:\/\/sittax\.com\.br\/blog\/.+?\)/g) || []).length;
@@ -752,7 +823,53 @@ export default function App() {
 
         {/* Input */}
         <div style={{ padding: "24px 28px", borderBottom: `1px solid ${BRAND.border}` }}>
-          <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: BRAND.textMuted, marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+
+          {/* Linha das chaves */}
+          <div style={{ display: "flex", gap: "12px", marginBottom: "14px" }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: BRAND.textMuted, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                🔑 Chave Anthropic (Claude)
+              </label>
+              <input
+                type="password"
+                value={keyAnthropic}
+                onChange={e => setKeyAnthropic(e.target.value)}
+                placeholder="sk-ant-..."
+                disabled={busy}
+                style={{
+                  width: "100%", padding: "10px 12px",
+                  borderRadius: BRAND.radius,
+                  border: `1.5px solid ${BRAND.border}`,
+                  fontSize: "13px", color: BRAND.text,
+                  background: busy ? "#F7F7F7" : "#fff",
+                  fontFamily: BRAND.font,
+                }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: BRAND.textMuted, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                🔑 Chave OpenAI (ChatGPT)
+              </label>
+              <input
+                type="password"
+                value={keyOpenAI}
+                onChange={e => setKeyOpenAI(e.target.value)}
+                placeholder="sk-..."
+                disabled={busy}
+                style={{
+                  width: "100%", padding: "10px 12px",
+                  borderRadius: BRAND.radius,
+                  border: `1.5px solid ${BRAND.border}`,
+                  fontSize: "13px", color: BRAND.text,
+                  background: busy ? "#F7F7F7" : "#fff",
+                  fontFamily: BRAND.font,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Linha do tema + botão */}
+          <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: BRAND.textMuted, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Tema do artigo
           </label>
           <div style={{ display: "flex", gap: "10px" }}>
@@ -774,17 +891,17 @@ export default function App() {
             />
             <button
               onClick={gerar}
-              disabled={busy || !tema.trim()}
+              disabled={busy || !tema.trim() || !keyAnthropic.trim() || !keyOpenAI.trim()}
               style={{
                 padding: "11px 22px",
                 borderRadius: BRAND.radius,
                 border: "none",
-                background: busy || !tema.trim() ? "#E0E0E0" : BRAND.primary,
-                color: busy || !tema.trim() ? "#ABABAB" : "#fff",
+                background: busy || !tema.trim() || !keyAnthropic.trim() || !keyOpenAI.trim() ? "#E0E0E0" : BRAND.primary,
+                color: busy || !tema.trim() || !keyAnthropic.trim() || !keyOpenAI.trim() ? "#ABABAB" : "#fff",
                 fontSize: "14px", fontWeight: "600",
-                cursor: busy || !tema.trim() ? "not-allowed" : "pointer",
+                cursor: busy || !tema.trim() || !keyAnthropic.trim() || !keyOpenAI.trim() ? "not-allowed" : "pointer",
                 whiteSpace: "nowrap", fontFamily: BRAND.font,
-                boxShadow: busy || !tema.trim() ? "none" : `0 2px 8px rgba(242,107,55,0.3)`,
+                boxShadow: busy || !tema.trim() || !keyAnthropic.trim() || !keyOpenAI.trim() ? "none" : `0 2px 8px rgba(242,107,55,0.3)`,
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
@@ -792,7 +909,7 @@ export default function App() {
             </button>
           </div>
           <p style={{ margin: "8px 0 0", fontSize: "12px", color: BRAND.textLight }}>
-            Seja específico: mencione público-alvo, contexto ou dúvida dos seus clientes
+            As chaves são usadas apenas nesta sessão e nunca armazenadas
           </p>
         </div>
 
