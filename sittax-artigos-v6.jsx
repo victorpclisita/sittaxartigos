@@ -368,6 +368,12 @@ async function callGroqComSearch(prompt, maxTokens) {
   return data.texto || "";
 }
 
+// Pausa com countdown visível no log da UI
+const pausa = (seg, motivo, logFn) => new Promise(resolve => {
+  if (logFn) logFn(`⏳ Aguardando ${seg}s (limite de tokens)...`, "info");
+  setTimeout(resolve, seg * 1000);
+});
+
 function parseJSON(text) {
   if (!text) return null;
   // 1. Limpar blocos de código markdown
@@ -573,22 +579,26 @@ export default function App() {
 
       setFase("corpo");
       log_("Escrevendo introdução e seções principais...");
+      await pausa(8, "", log_);
       const corpoPart = await callGroq(PROMPTS.corpo(tema, pd), 2500);
       if (corpoPart.length < 400) throw new Error("Corpo do artigo muito curto. Tente um tema mais específico.");
       log_(`✓ Corpo: ~${contarPalavras(corpoPart)} palavras`, "ok");
 
       setFase("faq");
       log_("Escrevendo seção de Perguntas Frequentes...");
+      await pausa(12, "", log_);
       const faqPart = await callGroq(PROMPTS.faq(tema, pd, corpoPart), 900);
       if (faqPart.length < 100) throw new Error("FAQ não gerado corretamente.");
       log_(`✓ FAQ: ~${contarPalavras(faqPart)} palavras`, "ok");
 
       setFase("cta");
       log_("Escrevendo conclusão...");
+      await pausa(10, "", log_);
       const conclusaoPart = await callGroq(PROMPTS.conclusao(tema, pd), 400);
       log_(`✓ Conclusão: ~${contarPalavras(conclusaoPart)} palavras`, "ok");
 
       log_("Escrevendo CTA...");
+      await pausa(8, "", log_);
       const ctaPart = await callGroq(PROMPTS.cta(tema, pd), 300);
       log_(`✓ CTA: ~${contarPalavras(ctaPart)} palavras`, "ok");
 
@@ -601,6 +611,7 @@ export default function App() {
 
       setFase("polimento");
       log_("Polindo transição e voz ativa (critérios Yoast)...");
+      await pausa(20, "", log_);
       try {
         const polido = await callGroq(PROMPTS.polimento(textoCompleto), 6000);
         if (polido?.length > 500) {
@@ -616,6 +627,7 @@ export default function App() {
       for (let rodada = 1; rodada <= 3; rodada++) {
         setFase(`auditoria${rodada}`);
         log_(`Auditoria ${rodada}/3 — verificando qualidade, Yoast e linguagem...`);
+        await pausa(20, "", log_);
         const rawA = await callGroq(PROMPTS.auditoria(textoFinal, rodada), 1500);
         const ad = parseJSON(rawA);
         if (!ad) { log_(`⚠ Auditoria ${rodada} não retornou JSON válido, pulando.`, "warn"); break; }
@@ -638,7 +650,7 @@ export default function App() {
         setFase(`revisao${rodada}`);
         log_(`Revisão ${rodada}/3 — corrigindo ${problemas.length} problema(s) para atingir score 90+...`, "warn");
         problemas.forEach(p => log_(`  → ${p}`, "warn"));
-
+        await pausa(20, "", log_);
         const revisado = await callGroq(PROMPTS.revisar(textoFinal, problemas), 6000);
         if (revisado?.length > 500) {
           textoFinal = revisado; setArtigo(revisado);
@@ -650,6 +662,7 @@ export default function App() {
         if (rodada === 1) {
           setFase("fontes");
           log_("Verificando legislação e inserindo links para fontes oficiais...");
+          await pausa(20, "", log_);
           try {
             const comLinks = await callGroqComSearch(PROMPTS.linkagem(textoFinal), 4500);
             if (comLinks?.length > 500) {
@@ -661,6 +674,7 @@ export default function App() {
 
           setFase("links_internos");
           log_("Buscando artigos do blog Sittax para inserir links internos...");
+          await pausa(20, "", log_);
           try {
             const comLinksInt = await callGroqComSearch(PROMPTS.linksInternos(textoFinal, tema), 4500);
             if (comLinksInt?.length > 500) {
